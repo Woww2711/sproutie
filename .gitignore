@@ -59,7 +59,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-.db
+
+*.db
 
 # IDE / Editor specific
 .vscode/
@@ -74,3 +75,4 @@ secrets.toml
 
 # Other
 .DS_Store
+.github/
