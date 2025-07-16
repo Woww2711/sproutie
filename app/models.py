@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, timezone
@@ -12,6 +12,9 @@ class ChatSession(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, index=True, nullable=False)
+
+    user_session_sequence = Column(Integer, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # This creates a "one-to-many" relationship.
