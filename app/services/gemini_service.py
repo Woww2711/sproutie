@@ -55,7 +55,8 @@ async def get_chat_response(history: List[models.ChatMessage]) -> str:
             contents=api_history, # Pass the translated history
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                temperature=0.7
+                temperature=0.7,
+                max_output_tokens=700,
             )
         )
         return response.text
