@@ -79,19 +79,26 @@ async def handle_chat(request: ChatRequest, db: Session = Depends(get_db)):
         models.ChatMessage.session_id == internal_session_id
     ).order_by(models.ChatMessage.created_at).all()
     
-    # Call the Gemini Service
-    assistant_response_text = await gemini_service.get_chat_response(history=history)
+    # 1. Call the Gemini Service, which now returns a structured object
+    service_response = await gemini_service.get_chat_response(history=history)
 
-    # Save the assistant's response
+    # 2. Save the assistant's response WITH token data to the database
     assistant_message = models.ChatMessage(
-        session_id=internal_session_id, role="assistant", content=assistant_response_text
+        session_id=internal_session_id,
+        role="assistant",
+        content=service_response.response_text,
+        input_tokens=service_response.input_tokens,
+        output_tokens=service_response.output_tokens
     )
     db.add(assistant_message)
     db.commit()
 
+    # 3. Prepare the final API response WITH token data for the client
     return ChatResponse(
-        # We return the user-facing sequential ID to the client
         session_id=external_session_id,
-        response_text=assistant_response_text,
+        response_text=service_response.response_text,
+        input_tokens=service_response.input_tokens,
+        output_tokens=service_response.output_tokens,
+        total_tokens=service_response.input_tokens + service_response.output_tokens,
         suggested_prompts=[]
     )
