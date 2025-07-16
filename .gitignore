@@ -59,6 +59,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.db
 
 # IDE / Editor specific
 .vscode/

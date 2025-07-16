@@ -1,5 +1,11 @@
 from fastapi import FastAPI
 from app.routers import chat
+from .database import engine, Base # <-- ADD THIS IMPORT
+
+# Create all database tables
+# This line looks at all the classes that inherit from Base (in models.py)
+# and creates the corresponding tables in the database.
+Base.metadata.create_all(bind=engine) # <-- ADD THIS LINE
 
 # Create an instance of the FastAPI class
 app = FastAPI(
