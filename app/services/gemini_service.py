@@ -4,6 +4,7 @@ from typing import List
 import google.genai as genai
 from google.genai import types
 from app import models
+from app.schemas import GeminiServiceResponse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,16 +30,19 @@ def load_system_prompt():
 
 SYSTEM_PROMPT = load_system_prompt()
 
-async def get_chat_response(history: List[models.ChatMessage]) -> str:
+async def get_chat_response(history: List[models.ChatMessage]) -> GeminiServiceResponse:
     """
-    Gets a response from the Gemini API, translating roles correctly.
-    The 'history' parameter should contain the full conversation, including the latest user message.
+    Gets a response from the Gemini API, returning text and token usage.
     """
     if not client:
-        return "Error: Gemini client is not configured."
+        # If the client fails, return a default error response
+        return GeminiServiceResponse(
+            response_text="Error: Gemini client is not configured.",
+            input_tokens=0,
+            output_tokens=0
+        )
 
-    # Format the history for the API, translating our internal role "assistant"
-    # to the API's required role "model".
+    # ... (api_history formatting is the same) ...
     api_history = []
     for msg in history:
         api_role = 'model' if msg.role == 'assistant' else 'user'
@@ -46,20 +50,32 @@ async def get_chat_response(history: List[models.ChatMessage]) -> str:
             "role": api_role,
             "parts": [{"text": msg.content}]
         })
-    
-    # Now api_history is a correctly formatted list of conversation turns.
 
     try:
         response = await client.aio.models.generate_content(
             model=MODEL,
-            contents=api_history, # Pass the translated history
+            contents=api_history,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.7,
-                max_output_tokens=700,
+                max_output_tokens=600
             )
         )
-        return response.text
+        # --- THIS IS THE NEW LOGIC ---
+        # Extract token usage from the response metadata
+        usage = response.usage_metadata
+        return GeminiServiceResponse(
+            response_text=response.text,
+            input_tokens=usage.prompt_token_count,
+            output_tokens=usage.candidates_token_count
+        )
+        # ----------------------------
+
     except Exception as e:
         print(f"An error occurred while calling the Gemini API: {e}")
-        return "Oh no! I seem to have a bit of a brain-freeze. 🥶 Please try again in a moment."
+        # Return an error response that still fits our data model
+        return GeminiServiceResponse(
+            response_text="Oh no! I seem to have a bit of a brain-freeze. 🥶 Please try again in a moment.",
+            input_tokens=0,
+            output_tokens=0
+        )

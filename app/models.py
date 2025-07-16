@@ -32,5 +32,8 @@ class ChatMessage(Base):
     image_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 
+    input_tokens = Column(Integer, nullable=True, default=0)
+    output_tokens = Column(Integer, nullable=True, default=0)
+
     # This creates the "many-to-one" side of the relationship.
     session = relationship("ChatSession", back_populates="messages")
