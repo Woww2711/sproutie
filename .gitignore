@@ -60,7 +60,7 @@ ENV/
 env.bak/
 venv.bak/
 
-sproutie.db
+*.db
 
 # IDE / Editor specific
 .vscode/
