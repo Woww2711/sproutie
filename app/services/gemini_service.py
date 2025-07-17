@@ -68,7 +68,7 @@ async def upload_file_to_gemini(
 
 async def get_chat_response(
     history: List[models.ChatMessage], 
-    file_api_names: List[str]
+    session_files: List[tuple[str, str]]
 ) -> GeminiServiceResponse:
     """
     Gets a response from the Gemini API, using the correct object types for history.
@@ -90,19 +90,10 @@ async def get_chat_response(
             role=api_role, 
             parts=[types.Part(text=msg.content)]
         ))
-    # print('---------------------------')
-    # print(file_api_names)
-    # file_name = file_api_names[0]
-    # myfile = client.files.get(name=file_name)
-    # print(myfile.uri)
-    # print('---------------------------')
-
+    
+    file_api_names = [file[0] for file in session_files]
     try:
         get_file_tasks = [client.aio.files.get(name=name) for name in file_api_names]
-        # print('---------------------------')
-        # for i in get_file_tasks:
-        #     print(i)
-        # print('---------------------------')
         file_objects = await asyncio.gather(*get_file_tasks)
     except Exception as e:
         print(f"Error retrieving files from Gemini API: {e}")
@@ -117,10 +108,11 @@ async def get_chat_response(
     final_prompt_parts = [types.Part(text=last_user_message)]
     # Add the retrieved File objects directly to the parts list
     for file_obj in file_objects:
+        mime_type = next((mime for name, mime in session_files if name == file_obj.name), "image/jpeg")
         final_prompt_parts.append(
             types.Part.from_uri(
                 file_uri=file_obj.uri, 
-                mime_type=file_obj.mime_type
+                mime_type=mime_type # Use the dynamic mime_type
             )
         )
 

@@ -6,6 +6,13 @@ from app.schemas import ChatRequest, ChatResponse
 from app import models, database
 from app.services import gemini_service # <-- Import our new service
 
+SUPPORTED_IMAGE_MIME_TYPES = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif"
+]
 # Create a new router object
 router = APIRouter(
     prefix="/v1/chat",
@@ -65,9 +72,13 @@ async def handle_chat(
     external_session_id = str(db_session.user_session_sequence)
 
     # --- Step 2: Handle File Upload (NEW LOGIC) ---
-    new_uploaded_file_api_name = None
+    # new_uploaded_file_api_name = None
     if image:
-        
+        if image.content_type not in SUPPORTED_IMAGE_MIME_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported image format. Please upload one of: {', '.join(SUPPORTED_IMAGE_MIME_TYPES)}"
+            )
         # Upload the file to the Gemini Files API via our service
         gemini_file = await gemini_service.upload_file_to_gemini(
             file=image
@@ -78,10 +89,10 @@ async def handle_chat(
             db_uploaded_file = models.UploadedFile(
                 session_id=internal_session_id,
                 file_api_name=gemini_file.name, # e.g., "files/abc-123"
-                # display_name=image.filename
+                mime_type=image.content_type
             )
             db.add(db_uploaded_file)
-            new_uploaded_file_api_name = gemini_file.name
+            # new_uploaded_file_api_name = gemini_file.name
         else:
             # Handle upload failure
             raise HTTPException(
@@ -105,16 +116,17 @@ async def handle_chat(
     ).order_by(models.ChatMessage.created_at).all()
     
     # Get all uploaded file API names for the session
-    session_files = db.query(models.UploadedFile.file_api_name).filter(
+    session_files = db.query(
+        models.UploadedFile.file_api_name, 
+        models.UploadedFile.mime_type
+    ).filter(
         models.UploadedFile.session_id == internal_session_id
     ).all()
-    # The query returns a list of tuples, so we extract the first element of each
-    file_api_names = [file[0] for file in session_files]
     
     # --- Step 5: Call Gemini Service (we need to update the service next) ---
     service_response = await gemini_service.get_chat_response(
         history=history,
-        file_api_names=file_api_names
+        session_files=session_files
     )
 
     # --- Step 6: Save and Return Response (Same as before) ---
