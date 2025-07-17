@@ -37,3 +37,19 @@ class ChatMessage(Base):
 
     # This creates the "many-to-one" side of the relationship.
     session = relationship("ChatSession", back_populates="messages")
+
+class UploadedFile(Base):
+    __tablename__ = "uploaded_files"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False)
+    
+    # The name returned by the Gemini Files API (e.g., "files/abc-123-xyz")
+    file_api_name = Column(String, unique=True, nullable=False, index=True)
+    
+    # # The original filename from the user (e.g., "my_monstera.jpg")
+    # display_name = Column(String, nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    session = relationship("ChatSession")
