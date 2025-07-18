@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse
 from app import models, database
 from app.services import gemini_service # <-- Import our new service
 
@@ -147,3 +147,68 @@ async def handle_chat(
         output_tokens=service_response.output_tokens,
         total_tokens=service_response.input_tokens + service_response.output_tokens
     )
+
+@router.get("/history", response_model=ChatHistoryResponse)
+def get_chat_history(
+    user_id: str,
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the full message history, with specific error handling.
+    """
+    # Step 1: Check if the user exists at all in any session.
+    user_exists = db.query(models.ChatSession).filter(
+        models.ChatSession.user_id == user_id
+    ).first()
+
+    if not user_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No sessions found for User ID: '{user_id}'. Please check the ID."
+        )
+
+    # Step 2: Now that we know the user exists, find the specific session.
+    db_session = db.query(models.ChatSession).filter(
+        models.ChatSession.user_id == user_id,
+        models.ChatSession.user_session_sequence == session_id
+    ).first()
+
+    if not db_session:
+        # This is the new, more specific error message.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session ID '{session_id}' not found for this user. Please check the session number."
+        )
+
+    # If both checks pass, get the messages.
+    text_messages = db.query(models.ChatMessage).filter(
+        models.ChatMessage.session_id == db_session.id
+    ).all()
+
+    # 2. Fetch all uploaded files for the session
+    image_files = db.query(models.UploadedFile).filter(
+        models.UploadedFile.session_id == db_session.id
+    ).all()
+
+    # 3. Combine them into a single list
+    combined_history = []
+    for msg in text_messages:
+        combined_history.append(
+            ChatMessageResponse(role=msg.role, content=msg.content, created_at=msg.created_at)
+        )
+    
+    for img in image_files:
+        combined_history.append(
+            ChatMessageResponse(
+                role="user", 
+                content="",
+                created_at=img.created_at, 
+                image_url=img.file_api_name
+            )
+        )
+
+    # 4. Sort the combined list by creation time to reconstruct the conversation
+    combined_history.sort(key=lambda x: x.created_at)
+
+    return ChatHistoryResponse(messages=combined_history)

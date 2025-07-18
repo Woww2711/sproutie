@@ -22,19 +22,14 @@ def create_db_and_tables():
     print("Done.")
 
 # --- UI Logic ---
-# The function now takes user_id and session_id from the UI
 def chat_with_sproutie(message: str, chat_history: list, image_input: str, user_id: str, session_id: str):
-    # If the user_id from the UI is empty, use the default.
     user_id_to_use = user_id.strip() if user_id and user_id.strip() else DEFAULT_USER_ID
     
-    # Session ID from the UI can be None or an empty string, which is fine.
     session_id_to_use = session_id.strip() if session_id and session_id.strip() else None
 
     if image_input:
-        # Add a turn that is just the user's image. The bot response is None.
         chat_history.append([(image_input,), None])
 
-    # 2. Prepare the API call (this part doesn't change)
     form_data = {"user_id": user_id_to_use, "message": message}
     if session_id_to_use:
         form_data["session_id"] = session_id_to_use
@@ -42,8 +37,6 @@ def chat_with_sproutie(message: str, chat_history: list, image_input: str, user_
     files = {}
     if image_input:
         filename = os.path.basename(image_input)
-        # We need to re-open the file since the previous history append might have used it.
-        # It's safer to just handle the file once for the request.
         file_handle = open(image_input, 'rb')
         files['image'] = (filename, file_handle, 'image/jpeg')
     
@@ -54,7 +47,6 @@ def chat_with_sproutie(message: str, chat_history: list, image_input: str, user_
         api_response_data = response.json()
         new_session_id = api_response_data.get("session_id")
         
-        # 3. Add the user's text message and the bot's response
         chat_history.append([message, api_response_data.get('response_text')])
         
         return "", chat_history, new_session_id
@@ -65,16 +57,61 @@ def chat_with_sproutie(message: str, chat_history: list, image_input: str, user_
         return "", chat_history, session_id_to_use
     finally:
         if 'image' in files:
-            # files['image'][1] is the file_handle
             files['image'][1].close()
+
+def load_history_from_api(user_id: str, session_id: str):
+    user_id_update = gr.update()
+    session_id_update = gr.update()
+
+    if not user_id.strip():
+        gr.Warning("User ID cannot be empty.")
+        return [], gr.update(label="❌ User ID Required"), session_id_update
+    if not session_id.strip():
+        gr.Warning("Session ID cannot be empty.")
+        return [], user_id_update, gr.update(label="❌ Session ID Required")
+
+    try:
+        params = {"user_id": user_id.strip(), "session_id": int(session_id.strip())}
+        response = requests.get(f"{API_URL}/history", params=params)
+
+        if response.status_code == 404:
+            error_detail = response.json().get('detail', 'Not found.')
+            gr.Error(error_detail)
+            if "User ID" in error_detail:
+                return [], gr.update(label=f"❌ User Not Found"), session_id_update
+            elif "Session ID" in error_detail:
+                return [], gr.update(label="User ID"), gr.update(label=f"❌ Session Not Found")
+        
+        response.raise_for_status()
+        
+        data = response.json()
+        gradio_history = []
+        user_msg = None
+        for message in data.get("messages", []):
+            if message['role'] == 'user':
+                user_msg = message['content']
+            elif message['role'] == 'assistant' and user_msg is not None:
+                gradio_history.append([user_msg, message['content']])
+                user_msg = None
+        
+        gr.Info("History loaded successfully!")
+        # On success, return the new history and reset both labels
+        return gradio_history, gr.update(label="User ID"), gr.update(label="Session ID")
+
+    except ValueError:
+        gr.Error("Session ID must be a number.")
+        return [], user_id_update, gr.update(label="❌ Must be a number")
+    except requests.exceptions.RequestException:
+        gr.Error("Could not connect to the API.")
+        return [], user_id_update, session_id_update
+
 
 # --- Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🌱 AI Sproutie Demo")
+    gr.Markdown("# 🌱 AI Sproutie Chatbot")
     
     with gr.Row():
-        # This column will contain the main chat components
-        with gr.Column(scale=4): # Make this main column wider
+        with gr.Column(scale=4):
             chatbot = gr.Chatbot(label="Conversation with Sproutie", height=550)
             
             with gr.Row():
@@ -83,16 +120,15 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                 )
                 submit_button = gr.Button("Send", variant="primary", scale=1)
 
-        # This column will be a narrow sidebar for the image and session info
-        with gr.Column(scale=1): # Make this sidebar column narrower
+        with gr.Column(scale=1):
             image_input = gr.Image(type="filepath", label="Upload Image")
             
-            with gr.Row():
-                user_id_input = gr.Textbox(label="User ID", value=DEFAULT_USER_ID)
-                session_id_input = gr.Textbox(label="Session ID", placeholder="Starts new session if empty")
-    # -----------------------
+            user_id_input = gr.Textbox(label="User ID", value=DEFAULT_USER_ID)
 
-    # Define the event handler for the button click
+            with gr.Row():
+                session_id_input = gr.Textbox(label="Session ID", placeholder="Enter # to load", scale=3)
+                load_button = gr.Button("Load", scale=1)
+
     submit_button.click(
         fn=chat_with_sproutie,
         inputs=[message_input, chatbot, image_input, user_id_input, session_id_input],
@@ -103,7 +139,11 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
         inputs=[message_input, chatbot, image_input, user_id_input, session_id_input],
         outputs=[message_input, chatbot, session_id_input]
     )
-    # Clear the image input after submission
+    load_button.click(
+        fn=load_history_from_api,
+        inputs=[user_id_input, session_id_input],
+        outputs=[chatbot, user_id_input, session_id_input]
+    )
     submit_button.click(lambda: None, None, image_input, queue=False)
     message_input.submit(lambda: None, None, image_input, queue=False)
 

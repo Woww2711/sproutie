@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
+from datetime import datetime
 
 # Pydantic model for the request body of the chat endpoint
 class ChatRequest(BaseModel):
@@ -21,3 +22,16 @@ class GeminiServiceResponse(BaseModel):
     response_text: str
     input_tokens: int
     output_tokens: int
+
+class ChatMessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    role: str
+    content: str
+    image_url: Optional[str] = None
+    created_at: datetime
+
+class ChatHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    messages: List[ChatMessageResponse] = []
