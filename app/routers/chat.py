@@ -1,214 +1,50 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile
-from typing import Optional, List
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.schemas import ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessageResponse
-from app import models, database
-from app.services import gemini_service # <-- Import our new service
+# In app/routers/chat.py
 
-SUPPORTED_IMAGE_MIME_TYPES = [
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/heic",
-    "image/heif"
-]
-# Create a new router object
+from fastapi import APIRouter, HTTPException, status
+from app.schemas import StatelessChatRequest, ChatResponse
+from app.services import gemini_service
+
 router = APIRouter(
     prefix="/v1/chat",
-    tags=["Chat"]
+    tags=["Stateless Chat"]
 )
 
-# Dependency to get a database session
-def get_db():
-    db = database.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post("/", response_model=ChatResponse)
-async def handle_chat(
-    # The order doesn't matter, but dependencies often go first
-    db: Session = Depends(get_db),
-    # These are now Form fields instead of JSON fields
-    user_id: str = Form(...),
-    message: str = Form(...),
-    session_id: Optional[str] = Form(None),
-    # This is how you declare a file upload
-    image: Optional[UploadFile] = File(None)
-):
+async def handle_stateless_chat(request: StatelessChatRequest):
     """
-    Handles a user's chat message, now accepting form-data and an optional image.
-    """
-    
-    # --- Step 1: Find or Create the Chat Session (Same as before) ---
-    db_session = None
-    if session_id:
-        try:
-            sequence_num = int(session_id)
-            db_session = db.query(models.ChatSession).filter(
-                models.ChatSession.user_id == user_id,
-                models.ChatSession.user_session_sequence == sequence_num
-            ).first()
-        except (ValueError, TypeError):
-             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Session ID must be a valid integer."
-            )
-    if not db_session:
-        max_sequence = db.query(func.max(models.ChatSession.user_session_sequence)).filter(
-            models.ChatSession.user_id == user_id
-        ).scalar() or 0
-        new_sequence_num = max_sequence + 1
-        db_session = models.ChatSession(
-            user_id=user_id, user_session_sequence=new_sequence_num
-        )
-        db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
-    
-    internal_session_id = db_session.id
-    external_session_id = str(db_session.user_session_sequence)
+    Handles a single, stateless chat request.
 
-    # --- Step 2: Handle File Upload (NEW LOGIC) ---
-    # new_uploaded_file_api_name = None
-    if image:
-        if image.content_type not in SUPPORTED_IMAGE_MIME_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported image format. Please upload one of: {', '.join(SUPPORTED_IMAGE_MIME_TYPES)}"
-            )
-        # Upload the file to the Gemini Files API via our service
-        gemini_file = await gemini_service.upload_file_to_gemini(
-            file=image
+    The user must provide their API key and the entire conversation
+    history in each request.
+    """
+    try:
+        # Call our new stateless service function
+        service_response = await gemini_service.get_stateless_chat_response(
+            history=request.history,
+            new_message=request.message,
+            api_key=request.api_key
         )
+
+        # Prepare and return the final response
+        return ChatResponse(
+            response_text=service_response.response_text,
+            input_tokens=service_response.input_tokens,
+            output_tokens=service_response.output_tokens,
+            total_tokens=service_response.input_tokens + service_response.output_tokens
+        )
+
+    except Exception as e:
+        # Catch errors from the service (e.g., invalid API key, network issues)
+        # and return a proper HTTP error.
+        # This is a generic catch-all. We can make it more specific if needed.
+        error_detail = str(e)
+        if "API key not valid" in error_detail:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your Google Gemini API key is not valid. Please check it and try again."
+            )
         
-        if gemini_file:
-            # If upload was successful, save the reference to our database
-            db_uploaded_file = models.UploadedFile(
-                session_id=internal_session_id,
-                file_api_name=gemini_file.name, # e.g., "files/abc-123"
-                mime_type=image.content_type
-            )
-            db.add(db_uploaded_file)
-            # new_uploaded_file_api_name = gemini_file.name
-        else:
-            # Handle upload failure
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to upload image to external service."
-            )
-
-    # --- Step 3: Save User Message (Same as before) ---
-    user_message = models.ChatMessage(
-        session_id=internal_session_id, role="user", content=message
-    )
-    db.add(user_message)
-    
-    # We commit both the user message and the file upload reference at the same time
-    db.commit()
-
-    # --- Step 4: Prepare data for Gemini (MODIFIED LOGIC) ---
-    # Get all chat messages for the session
-    history = db.query(models.ChatMessage).filter(
-        models.ChatMessage.session_id == internal_session_id
-    ).order_by(models.ChatMessage.created_at).all()
-    
-    # Get all uploaded file API names for the session
-    session_files = db.query(
-        models.UploadedFile.file_api_name, 
-        models.UploadedFile.mime_type
-    ).filter(
-        models.UploadedFile.session_id == internal_session_id
-    ).all()
-    
-    # --- Step 5: Call Gemini Service (we need to update the service next) ---
-    service_response = await gemini_service.get_chat_response(
-        history=history,
-        session_files=session_files
-    )
-
-    # --- Step 6: Save and Return Response (Same as before) ---
-    assistant_message = models.ChatMessage(
-        session_id=internal_session_id,
-        role="assistant",
-        content=service_response.response_text,
-        input_tokens=service_response.input_tokens,
-        output_tokens=service_response.output_tokens
-    )
-    db.add(assistant_message)
-    db.commit()
-
-    return ChatResponse(
-        session_id=external_session_id,
-        response_text=service_response.response_text,
-        input_tokens=service_response.input_tokens,
-        output_tokens=service_response.output_tokens,
-        total_tokens=service_response.input_tokens + service_response.output_tokens
-    )
-
-@router.get("/history", response_model=ChatHistoryResponse)
-def get_chat_history(
-    user_id: str,
-    session_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieves the full message history, with specific error handling.
-    """
-    # Step 1: Check if the user exists at all in any session.
-    user_exists = db.query(models.ChatSession).filter(
-        models.ChatSession.user_id == user_id
-    ).first()
-
-    if not user_exists:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No sessions found for User ID: '{user_id}'. Please check the ID."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {error_detail}"
         )
-
-    # Step 2: Now that we know the user exists, find the specific session.
-    db_session = db.query(models.ChatSession).filter(
-        models.ChatSession.user_id == user_id,
-        models.ChatSession.user_session_sequence == session_id
-    ).first()
-
-    if not db_session:
-        # This is the new, more specific error message.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session ID '{session_id}' not found for this user. Please check the session number."
-        )
-
-    # If both checks pass, get the messages.
-    text_messages = db.query(models.ChatMessage).filter(
-        models.ChatMessage.session_id == db_session.id
-    ).all()
-
-    # 2. Fetch all uploaded files for the session
-    image_files = db.query(models.UploadedFile).filter(
-        models.UploadedFile.session_id == db_session.id
-    ).all()
-
-    # 3. Combine them into a single list
-    combined_history = []
-    for msg in text_messages:
-        combined_history.append(
-            ChatMessageResponse(role=msg.role, content=msg.content, created_at=msg.created_at)
-        )
-    
-    for img in image_files:
-        combined_history.append(
-            ChatMessageResponse(
-                role="user", 
-                content="",
-                created_at=img.created_at, 
-                image_url=img.file_api_name
-            )
-        )
-
-    # 4. Sort the combined list by creation time to reconstruct the conversation
-    combined_history.sort(key=lambda x: x.created_at)
-
-    return ChatHistoryResponse(messages=combined_history)
