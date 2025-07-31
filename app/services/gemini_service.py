@@ -3,7 +3,9 @@
 from typing import List
 import google.genai as genai
 from google.genai import types
-from app.schemas import GeminiServiceResponse, HistoryMessage # Import our new schema
+from app.schemas import GeminiServiceResponse, HistoryMessage
+import base64
+import magic
 
 MODEL = 'gemini-2.5-flash-lite-preview-06-17'
 
@@ -17,34 +19,45 @@ def load_system_prompt():
 
 SYSTEM_PROMPT = load_system_prompt()
 
+def _create_part_from_base64(b64_string: str) -> types.Part:
+    """Decodes a base64 string and creates a Gemini Part object."""
+    image_bytes = base64.b64decode(b64_string)
+    mime_type = magic.from_buffer(image_bytes, mime=True)
+    return types.Part(inline_data=image_bytes, mime_type=mime_type)
+
 # This is now our only service function.
 async def get_stateless_chat_response(
     history: List[HistoryMessage], 
     new_message: str,
-    api_key: str
+    api_key: str,
+    new_image_b64: str | None
 ) -> GeminiServiceResponse:
     """
     Gets a response from Gemini using a user-provided API key and history.
     This function is completely stateless.
     """
     try:
-        # Create a client for this specific request
         client = genai.Client(api_key=api_key)
         
-        # --- Build the prompt contents directly from the input ---
+        api_history = []
+        for msg in history:
+            parts = [types.Part(text=msg.content)]
+            if msg.image_base64:
+                try:
+                    parts.append(_create_part_from_base64(msg.image_base64))
+                except Exception as e:
+                    print(f"Could not process a historical image: {e}")
+                    parts.append(types.Part(text="[Image could not be loaded]"))
+            api_history.append(types.Content(role=msg.role, parts=parts))
         
-        # Convert Pydantic HistoryMessage objects to SDK Content objects
-        api_history = [
-            types.Content(role=msg.role, parts=[types.Part(text=msg.content)])
-            for msg in history
-        ]
-        
-        # Add the new user message to the end of the conversation
-        api_history.append(
-            types.Content(role='user', parts=[types.Part(text=new_message)])
-        )
-        
-        # --- Call the API ---
+        final_prompt_parts = [types.Part(text=new_message)]
+        if new_image_b64:
+            try:
+                final_prompt_parts.append(_create_part_from_base64(new_image_b64))
+            except Exception as e:
+                raise ValueError(f"Invalid Base64 image data provided: {e}")
+
+        api_history.append(types.Content(role='user', parts=final_prompt_parts))
         
         response = await client.aio.models.generate_content(
             model=MODEL,
@@ -61,8 +74,6 @@ async def get_stateless_chat_response(
             input_tokens=usage.prompt_token_count,
             output_tokens=usage.candidates_token_count
         )
-
     except Exception as e:
         print(f"An error occurred while calling the Gemini API: {e}")
-        # Re-raise the exception to be handled by the router
         raise e
