@@ -28,6 +28,7 @@ class GeminiServiceResponse(BaseModel):
 # It also remains largely unchanged.
 class ChatResponse(BaseModel):
     response_text: str
+    history: List[HistoryMessage] = []
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
