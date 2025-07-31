@@ -23,7 +23,7 @@ def _create_part_from_base64(b64_string: str) -> types.Part:
     """Decodes a base64 string and creates a Gemini Part object."""
     image_bytes = base64.b64decode(b64_string)
     mime_type = magic.from_buffer(image_bytes, mime=True)
-    return types.Part(inline_data=image_bytes, mime_type=mime_type)
+    return types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
 # This is now our only service function.
 async def get_stateless_chat_response(
