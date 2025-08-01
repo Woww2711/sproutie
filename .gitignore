@@ -76,3 +76,6 @@ secrets.toml
 # Other
 .DS_Store
 .github/
+local_data/
+test.py
+*.jpg

@@ -6,7 +6,6 @@ from app.schemas import ChatResponse, HistoryMessage
 from app.services import gemini_service
 import json
 import pydantic
-import base64
 
 router = APIRouter(
     prefix="/v1/chat",
@@ -14,65 +13,77 @@ router = APIRouter(
 )
 
 @router.post("/", response_model=ChatResponse)
-async def handle_multipart_chat(
-    # --- New signature with Form and File ---
+async def handle_multimodal_chat(
+    # --- The endpoint signature remains multipart/form-data ---
     api_key: str = Form(...),
     message: str = Form(...),
     user_id: str = Form("postman-user"),
-    # History is now a string, which we expect to be a JSON array.
-    # It defaults to an empty JSON array string '[]'.
     history: str = Form("[]"), 
     image: Union[Optional[UploadFile], str] = File(None)
 ):
     """
-    Handles a chat request via multipart/form-data, with an optional
-    image and a JSON string for history.
+    Handles a multimodal chat request. Accepts an optional image and a
+    JSON string for history, using the Gemini Files API for efficient
+    image handling.
     """
-    # --- Parse and Validate Inputs ---
-    
-    # 1. Parse the history JSON string
+    # 1. Parse and Validate the incoming history string
     try:
         history_data = json.loads(history)
-        # Use Pydantic to validate the structure of the parsed history
         validated_history = pydantic.parse_obj_as(List[HistoryMessage], history_data)
     except (json.JSONDecodeError, pydantic.ValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid 'history' format. It must be a valid JSON string of an array of objects. Error: {e}"
+            detail=f"Invalid 'history' format. Must be a JSON string of an array. Error: {e}"
         )
 
-    # 2. Process the image file into a Base64 string, if it exists
-    image_b64_string: Optional[str] = None
+    # 2. Upload the new image, if it exists, to get a file reference
+    new_file_references: List[str] = []
     if image:
         try:
-            image_bytes = await image.read()
-            image_b64_string = base64.b64encode(image_bytes).decode("utf-8")
+            # Call the upload service
+            uploaded_file = await gemini_service.upload_file_to_gemini(
+                file=image, 
+                api_key=api_key
+            )
+            # Store the reference name
+            new_file_references.append(uploaded_file.name)
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"File upload failed: {e}")
         finally:
             await image.close()
-            
-    # --- Call the Service (No changes needed here) ---
+
+    # 3. Construct the history for this turn, including the new message and file reference
+    # This becomes the last item in the list sent to the main service.
+    current_turn_history = validated_history
+    current_turn_history.append(
+        HistoryMessage(
+            role="user", 
+            content=message, 
+            file_references=new_file_references if new_file_references else None
+        )
+    )
+
+    # 4. Call the main service with the complete history
     try:
-        service_response = await gemini_service.get_stateless_chat_response(
-            history=validated_history,
-            new_message=message,
+        service_response = await gemini_service.get_multimodal_chat_response(
+            history=current_turn_history,
             api_key=api_key,
-            new_image_b64=image_b64_string
         )
     except Exception as e:
-        # ... (error handling for Gemini API) ...
         error_detail = str(e)
         if "API key not valid" in error_detail:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google Gemini API key.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"API Error: {error_detail}")
 
-    # --- Build the Response (No changes needed here) ---
-    updated_history = validated_history
-    updated_history.append(HistoryMessage(role="user", content=message, image_base64=image_b64_string))
-    updated_history.append(HistoryMessage(role="model", content=service_response.response_text))
+    # 5. Build the final response, including the AI's response turn
+    final_history = current_turn_history
+    final_history.append(
+        HistoryMessage(role="model", content=service_response.response_text)
+    )
 
     return ChatResponse(
         response_text=service_response.response_text,
-        history=updated_history,
+        history=final_history,
         input_tokens=service_response.input_tokens,
         output_tokens=service_response.output_tokens,
         total_tokens=service_response.input_tokens + service_response.output_tokens

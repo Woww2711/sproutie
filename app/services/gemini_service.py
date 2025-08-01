@@ -1,13 +1,13 @@
 # In app/services/gemini_service.py
 
 from typing import List
+from fastapi import UploadFile
 import google.genai as genai
-from google.genai import types
+import google.genai.types as types
 from app.schemas import GeminiServiceResponse, HistoryMessage
-import base64
-import magic
+import asyncio
 
-MODEL = 'gemini-2.5-flash-lite-preview-06-17'
+MODEL = 'gemini-2.5-flash-lite'
 
 def load_system_prompt():
     try:
@@ -19,53 +19,67 @@ def load_system_prompt():
 
 SYSTEM_PROMPT = load_system_prompt()
 
-def _create_part_from_base64(b64_string: str) -> types.Part:
-    """Decodes a base64 string and creates a Gemini Part object."""
-    image_bytes = base64.b64decode(b64_string)
-    mime_type = magic.from_buffer(image_bytes, mime=True)
-    return types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+# --- This function handles the initial upload ---
+async def upload_file_to_gemini(file: UploadFile, api_key: str) -> types.File:
+    """Uploads a file using a temporary client initialized with the user's API key."""
+    try:
+        client = genai.Client(api_key=api_key)
+        print(f"Uploading file '{file.filename}' to Gemini Files API...")
+        uploaded_file = await client.aio.files.upload(
+            file=file.file,
+            config=types.UploadFileConfig(mime_type=file.content_type)
+        )
+        print(f"Successfully uploaded file. API Name: {uploaded_file.name}")
+        return uploaded_file
+    except Exception as e:
+        print(f"An error occurred during file upload to Gemini: {e}")
+        raise e
 
-# This is now our only service function.
-async def get_stateless_chat_response(
-    history: List[HistoryMessage], 
-    new_message: str,
+# --- This is the main chat function, implementing our test script's logic ---
+async def get_multimodal_chat_response(
+    history: List[HistoryMessage],
     api_key: str,
-    new_image_b64: str | None
 ) -> GeminiServiceResponse:
     """
-    Gets a response from Gemini using a user-provided API key and history.
-    This function is completely stateless.
+    Gets a multimodal response from Gemini, retrieving files from references.
+    The last message in the history is considered the current user prompt.
     """
     try:
         client = genai.Client(api_key=api_key)
         
+        # Build the full history for the API
         api_history = []
         for msg in history:
-            parts = [types.Part(text=msg.content)]
-            if msg.image_base64:
-                try:
-                    parts.append(_create_part_from_base64(msg.image_base64))
-                except Exception as e:
-                    print(f"Could not process a historical image: {e}")
-                    parts.append(types.Part(text="[Image could not be loaded]"))
-            api_history.append(types.Content(role=msg.role, parts=parts))
-        
-        final_prompt_parts = [types.Part(text=new_message)]
-        if new_image_b64:
+            # For each message, retrieve the files it references
+            file_references = msg.file_references or []
+            
             try:
-                final_prompt_parts.append(_create_part_from_base64(new_image_b64))
+                get_file_tasks = [client.aio.files.get(name=name) for name in file_references]
+                file_objects = await asyncio.gather(*get_file_tasks)
             except Exception as e:
-                raise ValueError(f"Invalid Base64 image data provided: {e}")
+                # Handle cases where a file might have expired (48h)
+                print(f"Error retrieving a historical file: {e}")
+                # We'll just skip this file and proceed
+                file_objects = []
 
-        api_history.append(types.Content(role='user', parts=final_prompt_parts))
-        
+            # Create the 'parts' for this turn, including text and any retrieved files
+            parts = [types.Part(text=msg.content)]
+            for file_obj in file_objects:
+                parts.append(types.Part.from_uri(
+                    file_uri=file_obj.uri,
+                    mime_type=file_obj.mime_type
+                ))
+
+            api_history.append(types.Content(role=msg.role, parts=parts))
+
+        # --- Call the API ---
         response = await client.aio.models.generate_content(
             model=MODEL,
             contents=api_history,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.7,
-                max_output_tokens=600
+                max_output_tokens=800
             )
         )
         usage = response.usage_metadata
