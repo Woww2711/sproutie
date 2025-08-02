@@ -52,16 +52,25 @@ async def get_multimodal_chat_response(
         for msg in history:
             # For each message, retrieve the files it references
             file_references = msg.file_references or []
-            
-            try:
-                get_file_tasks = [client.aio.files.get(name=name) for name in file_references]
-                file_objects = await asyncio.gather(*get_file_tasks)
-            except Exception as e:
-                # Handle cases where a file might have expired (48h)
-                print(f"Error retrieving a historical file: {e}")
-                # We'll just skip this file and proceed
-                file_objects = []
-
+            print(f"Processing message: {msg.role} - {msg.content[:30]}... | file_references: {file_references}")
+            file_objects = []
+            if file_references:
+                for ref in file_references:
+                    print(f"  Attempting to retrieve file reference: {ref}")
+                try:
+                    get_file_tasks = [client.aio.files.get(name=name) for name in file_references]
+                    # Add a timeout to file retrieval (e.g., 10 seconds)
+                    file_objects = await asyncio.wait_for(asyncio.gather(*get_file_tasks), timeout=10)
+                    print(f"Retrieved file objects: {[f.name for f in file_objects]}")
+                except asyncio.TimeoutError:
+                    print(f"Timeout retrieving files: {file_references}")
+                    # Optionally, you could raise or skip
+                except Exception as e:
+                    # Handle cases where a file might have expired (48h)
+                    print(f"Error retrieving a historical file: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # We'll just skip this file and proceed
             # Create the 'parts' for this turn, including text and any retrieved files
             parts = [types.Part(text=msg.content)]
             for file_obj in file_objects:
@@ -69,7 +78,6 @@ async def get_multimodal_chat_response(
                     file_uri=file_obj.uri,
                     mime_type=file_obj.mime_type
                 ))
-
             api_history.append(types.Content(role=msg.role, parts=parts))
 
         # --- Call the API ---
