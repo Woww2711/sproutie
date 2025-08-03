@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, status, Form, File, UploadFile
 from typing import Optional, List, Union
-from app.schemas import ChatResponse, HistoryMessage
+from app.schemas import ChatResponse, HistoryMessage, FileReference
 from app.services import gemini_service
 import json
 import pydantic
@@ -32,11 +32,14 @@ async def handle_multimodal_chat(
             detail=f"Invalid 'history' format. Must be a JSON string of an array. Error: {e}"
         )
 
-    new_file_references: List[str] = []
+    new_file_references: List[FileReference] = []
     if image and getattr(image, "filename", None) and image.filename.strip():
         try:
             uploaded_file = await gemini_service.upload_file_to_gemini(file=image, api_key=api_key)
-            new_file_references.append(uploaded_file.name)
+            new_file_references.append(FileReference(
+                name=uploaded_file.name,
+                mime_type=uploaded_file.mime_type
+            ))
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"File upload failed: {e}")
         finally:
@@ -47,7 +50,7 @@ async def handle_multimodal_chat(
         HistoryMessage(
             role="user",
             content=message,
-            file_references=new_file_references or None
+            file_references=new_file_references if new_file_references else None
         )
     )
 
@@ -69,6 +72,7 @@ async def handle_multimodal_chat(
     return ChatResponse(
         response_text=service_response.response_text,
         history=current_turn_history,
+        suggested_prompts=service_response.follow_ups,
         input_tokens=service_response.input_tokens,
         output_tokens=service_response.output_tokens,
         total_tokens=service_response.input_tokens + service_response.output_tokens

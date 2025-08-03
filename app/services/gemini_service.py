@@ -6,6 +6,7 @@ import google.genai as genai
 import google.genai.types as types
 from app.schemas import GeminiServiceResponse, HistoryMessage
 import asyncio
+import json
 
 MODEL = 'gemini-2.5-flash-lite'
 
@@ -58,7 +59,7 @@ async def get_multimodal_chat_response(
                 for ref in file_references:
                     print(f"  Attempting to retrieve file reference: {ref}")
                 try:
-                    get_file_tasks = [client.aio.files.get(name=name) for name in file_references]
+                    get_file_tasks = [client.aio.files.get(name=ref.name) for ref in file_references]
                     # Add a timeout to file retrieval (e.g., 10 seconds)
                     file_objects = await asyncio.wait_for(asyncio.gather(*get_file_tasks), timeout=10)
                     print(f"Retrieved file objects: {[f.name for f in file_objects]}")
@@ -90,9 +91,21 @@ async def get_multimodal_chat_response(
                 max_output_tokens=800
             )
         )
+
+        try:
+            # The AI's response is now a JSON string, so we parse it.
+            ai_output = json.loads(response.text)
+            response_text = ai_output.get("response", response.text) # Fallback to raw text on error
+            follow_ups = ai_output.get("follow_up_questions", [])
+        except json.JSONDecodeError:
+            # If the AI fails to generate valid JSON, we gracefully fall back.
+            response_text = response.text
+            follow_ups = []
+
         usage = response.usage_metadata
         return GeminiServiceResponse(
-            response_text=response.text,
+            response_text=response_text,
+            follow_ups=follow_ups,
             input_tokens=usage.prompt_token_count,
             output_tokens=usage.candidates_token_count
         )

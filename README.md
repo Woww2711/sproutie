@@ -116,7 +116,7 @@ The FastAPI backend exposes the following endpoints, running at `http://127.0.0.
 <details>
 <summary><strong>API Endpoint Details</strong></summary>
 
-- **`POST /api/v1/chat`**
+- **`POST /v1/chat`**
   - **Type:** `multipart/form-data`
   - **Description:** Handles a chat message, including optional image uploads. Manages session creation and state.
   - **Form Fields:**
@@ -133,6 +133,43 @@ The FastAPI backend exposes the following endpoints, running at `http://127.0.0.
     - `session_id` (int, required)
 
 </details>
+
+## 💻 API Usage Examples (`curl`)
+
+These examples demonstrate how to use the API from the command line using `curl`. For the best experience, especially with conversation history, using an API client like **Postman** is highly recommended. These commands are tested to work on Linux, macOS, and Git Bash on Windows.
+
+### Turn 1: Send a Message with an Image
+Git bash:
+```bash
+curl -X POST "http://127.0.0.1:8000/v1/chat" \
+-H "accept: application/json" \
+-F "api_key=YOUR_GEMINI_API_KEY" \
+-F "message=What is this plant?" \
+-F "history=[]" \
+-F "image=@/path/to/your/plant.jpg"
+```
+
+Postman:
+```bash
+curl --location 'http://127.0.0.1:8000/v1/chat' \
+--form 'api_key="AIzaSyCwHGlu1qvMW43uVLmNGToD0CiS56QFCCs"' \
+--form 'message="Hi, what'\''s this plant?"' \
+--form 'history="[]"' \
+--form 'image=@"/C:/Users/minhq/Downloads/1572060934-cay-luoi-ho-van.jpg"'
+```
+
+### Turn 2: Send a Follow-up Message (Using History)
+First, copy the entire history array from the JSON response of the previous turn. Then, paste it as the value for the -F "history=..." argument.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/v1/chat" \
+-H "accept: application/json" \
+-F "api_key=YOUR_GEMINI_API_KEY" \
+-F "message=How much water does it need?" \
+-F "history=[{\"role\": \"user\", \"content\": \"What is this plant?\", \"file_references\": [{\"name\": \"files/abc-123\", \"mime_type\": \"image/jpeg\"}]}, {\"role\": \"model\", \"content\": \"That is a Monstera Deliciosa!\"}]"
+```
+(Note: For the history argument, the JSON string must be valid, and internal double quotes must be escaped with a backslash (\\") on the command line.)
+
 
 ## 🤗 Deploying to Hugging Face Spaces
 
