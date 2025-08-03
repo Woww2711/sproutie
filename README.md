@@ -1,192 +1,99 @@
-# 🌱 AI Sproutie - Your Personal Plant Care Assistant
 
-AI Sproutie is a smart, friendly, and empathetic virtual assistant designed to help you care for your plants with confidence. Built with a powerful backend and a user-friendly demo interface, Sproutie can identify plants, diagnose problems, and provide expert care advice through a natural, conversational chat.
+# 🌱 AI Sproutie - Plant Care Assistant (API Only)
 
-This repository contains the full source code for the FastAPI backend API and the Gradio frontend demo.
+AI Sproutie is a FastAPI backend for plant identification, diagnosis, and care advice. It supports multimodal chat (text + image) and conversation history, powered by Google Gemini. **This branch exposes only the FastAPI backend (no Gradio UI).**
 
 
-![alt text](image.png)
 
-## ✨ Features
+## Features
+- Multimodal chat: text and image support
+- Plant identification and diagnosis
+- Conversation history (stateful)
+- Ready-to-integrate FastAPI backend
 
-- **Multimodal Chat:** Converse with Sproutie using both text and images.
-- **Plant Identification:** Upload a photo of a plant, and Sproutie will do its best to identify it.
-- **Problem Diagnosis:** Describe symptoms or show a picture of a sick plant to get potential diagnoses and solutions.
-- **Stateful Conversations:** Sproutie remembers the context of your conversation, including previously uploaded images, within a single session.
-- **Conversation History:** Load and review past conversations by providing a User ID and Session ID.
-- **Interactive UI:** A simple and intuitive Gradio demo interface for easy interaction and demonstration.
-- **Robust Backend:** A scalable API built with FastAPI, ready for integration into a mobile or web app.
 
-## 🛠️ Tech Stack
+sproutie-api-project/
 
-- **Backend:** Python, FastAPI
-- **Frontend / UI:** Gradio
-- **AI Model:** Google Gemini API (`gemini-2.5-flash-lite-preview-06-17`)
-- **Database:** SQLAlchemy with SQLite
-- **Deployment Model:** Optimized for Hugging Face Spaces (Threaded FastAPI + Gradio)
-
-## 📁 Project Structure
-
-The project is organized into two main parts: the FastAPI application (`app/`) and the Gradio UI (`app.py`).
-
+## Project Structure
 ```
 sproutie-api-project/
-├── .gitignore
-├── app.py              # Main entry point for Gradio UI and server logic
-├── requirements.txt    # Python package dependencies
-├── sproutie_system_prompt.md # The core personality and instruction prompt for the AI
+├── requirements.txt            # Python dependencies
+├── sproutie_system_prompt.md   # AI system prompt
 └── app/
-    ├── __init__.py
-    ├── database.py     # SQLAlchemy setup (engine, session)
-    ├── main.py         # FastAPI app definition and root endpoint
-    ├── models.py       # SQLAlchemy database table models
-    ├── schemas.py      # Pydantic data validation schemas
+    ├── main.py                # FastAPI app
+    ├── schemas.py             # Pydantic schemas
     ├── routers/
-    │   └── chat.py     # API routes for all chat-related endpoints
+    │   └── chat.py            # Chat API endpoints
     └── services/
-        └── gemini_service.py # Logic for interacting with the Google Gemini API
+        └── gemini_service.py  # Gemini API logic
 ```
 
-## 🚀 Setup and Installation
-
-Follow these steps to get the application running on your local machine.
-
-### 1. Clone the Repository
+## 🚀 Quickstart
 
 ```bash
 git clone <your-repository-url>
 cd sproutie-api-project
-```
-
-### 2. Set Up Conda Environment
-
-It is highly recommended to use a virtual environment.
-
-```bash
-# Create a new conda environment with Python 3.11
 conda create --name sproutie-api python=3.11 -y
-
-# Activate the environment
 conda activate sproutie-api
-```
-
-### 3. Install Dependencies
-
-Install all the required Python packages from the `requirements.txt` file.
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+1. Add your Gemini API key to a `.env` file:
+   ```env
+   GEMINI_API_KEY="YOUR_API_KEY_HERE"
+   ```
+2. Ensure `sproutie_system_prompt.md` is present in the root directory.
 
-You need to provide your Google Gemini API key.
-
-1.  Create a file named `.env` in the root of the project directory.
-2.  Add your API key to this file:
-
-    ```env
-    GEMINI_API_KEY="YOUR_API_KEY_HERE"
-    ```
-    *(The `.gitignore` file is already configured to ignore this file, keeping your key secure.)*
-
-### 5. System Prompt
-
-Make sure the `sproutie_system_prompt.md` file is present in the root directory. This file defines the AI's personality, expertise, and rules of engagement.
-
-## ▶️ Running the Application
-
-To run the complete application (both the FastAPI backend and the Gradio UI), execute the following command from the root directory:
+## ▶️ Running
 
 ```bash
-python app.py
+uvicorn app.main:app --reload
 ```
 
-This will:
-1.  Create the `sproutie.db` SQLite database file if it doesn't exist.
-2.  Start the FastAPI server in a background thread on `http://127.0.0.1:8000`.
-3.  Launch the Gradio web interface, which you can access at **`http://127.0.0.1:7860`**.
+Visit `http://127.0.0.1:8000/docs` for the FastAPI interactive docs.
 
-Open `http://127.0.0.1:7860` in your web browser to start chatting with Sproutie!
 
 ## 🌐 API Endpoints
 
-The FastAPI backend exposes the following endpoints, running at `http://127.0.0.1:8000`.
+### POST `/v1/chat`
+**Type:** `multipart/form-data`
 
-<details>
-<summary><strong>API Endpoint Details</strong></summary>
+**Fields:**
+- `api_key` (str, required)
+- `message` (str, required)
+- `user_id` (str, optional)
+- `history` (str, required, JSON array)
+- `image` (file, optional)
 
-- **`POST /v1/chat`**
-  - **Type:** `multipart/form-data`
-  - **Description:** Handles a chat message, including optional image uploads. Manages session creation and state.
-  - **Form Fields:**
-    - `user_id` (str, required)
-    - `message` (str, required)
-    - `session_id` (str, optional)
-    - `image` (file, optional)
+### GET `/api/v1/chat/history`
+**Query:**
+- `user_id` (str, required)
+- `session_id` (int, required)
 
-- **`GET /api/v1/chat/history`**
-  - **Type:** Query Parameters
-  - **Description:** Retrieves the full message history for a specific conversation.
-  - **Query Parameters:**
-    - `user_id` (str, required)
-    - `session_id` (int, required)
+---
 
-</details>
 
-## 💻 API Usage Examples (`curl`)
 
-These examples demonstrate how to use the API from the command line using `curl`. For the best experience, especially with conversation history, using an API client like **Postman** is highly recommended. These commands are tested to work on Linux, macOS, and Git Bash on Windows.
+## 💻 API Usage Examples (curl)
 
-### Turn 1: Send a Message with an Image
-Git bash:
+> For best results, use Linux/macOS or Git Bash on Windows. Do **not** manually set the Content-Type header.
+
+### 1. Send a Message with an Image
 ```bash
 curl -X POST "http://127.0.0.1:8000/v1/chat" \
--H "accept: application/json" \
--F "api_key=YOUR_GEMINI_API_KEY" \
--F "message=What is this plant?" \
--F "history=[]" \
--F "image=@/path/to/your/plant.jpg"
+  -H "accept: application/json" \
+  -F "api_key=YOUR_GEMINI_API_KEY" \
+  -F "message=What is this plant?" \
+  -F "history=[]" \
+  -F "image=@/path/to/your/plant.jpg"
 ```
 
-Postman:
-```bash
-curl --location 'http://127.0.0.1:8000/v1/chat' \
---form 'api_key="AIzaSyCwHGlu1qvMW43uVLmNGToD0CiS56QFCCs"' \
---form 'message="Hi, what'\''s this plant?"' \
---form 'history="[]"' \
---form 'image=@"/C:/Users/minhq/Downloads/1572060934-cay-luoi-ho-van.jpg"'
-```
-
-### Turn 2: Send a Follow-up Message (Using History)
-First, copy the entire history array from the JSON response of the previous turn. Then, paste it as the value for the -F "history=..." argument.
-
+### 2. Send a Follow-up Message (with History)
+Copy the `history` array from the previous response and use it as the value for the next turn:
 ```bash
 curl -X POST "http://127.0.0.1:8000/v1/chat" \
--H "accept: application/json" \
--F "api_key=YOUR_GEMINI_API_KEY" \
--F "message=How much water does it need?" \
--F "history=[{\"role\": \"user\", \"content\": \"What is this plant?\", \"file_references\": [{\"name\": \"files/abc-123\", \"mime_type\": \"image/jpeg\"}]}, {\"role\": \"model\", \"content\": \"That is a Monstera Deliciosa!\"}]"
+  -H "accept: application/json" \
+  -F "api_key=YOUR_GEMINI_API_KEY" \
+  -F "message=How much water does it need?" \
+  -F "history=[{\"role\":\"user\",\"content\":\"What is this plant?\",\"file_references\":[{\"name\":\"files/abc-123\",\"mime_type\":\"image/jpeg\"}]},{\"role\":\"model\",\"content\":\"That is a Monstera Deliciosa!\"}]"
 ```
-(Note: For the history argument, the JSON string must be valid, and internal double quotes must be escaped with a backslash (\\") on the command line.)
-
-
-## 🤗 Deploying to Hugging Face Spaces
-
-This project is structured for easy deployment to Hugging Face Spaces.
-
-1.  Create a new Space on Hugging Face.
-2.  Choose **Gradio** as the SDK.
-3.  Link it to your GitHub repository or upload the files manually.
-4.  Go to the **Settings** tab of your new Space.
-5.  Navigate to **Repository secrets** and add a new secret:
-    - **Name:** `GEMINI_API_KEY`
-    - **Secret value:** Paste your actual Google Gemini API key here.
-6.  The Space will build automatically using the `app.py` entry point and `requirements.txt` file.
-
-## 🔮 Future Improvements
-
-- **Streaming Responses:** Implement response streaming to make the chatbot feel more interactive and "live".
-- **AI-Generated Suggestions:** Prompt the AI to suggest relevant follow-up questions to guide the user.
-- **Full User Authentication:** Replace the simple `user_id` string with a proper JWT-based authentication system for a production app.
-- **Dockerization:** Create a `Dockerfile` to containerize the application for deployment on other cloud platforms.
