@@ -4,7 +4,7 @@ from typing import List
 from fastapi import UploadFile
 import google.genai as genai
 import google.genai.types as types
-from app.schemas import GeminiServiceResponse, HistoryMessage
+from app.schemas import GeminiServiceResponse, HistoryMessage, AIResponse
 import asyncio
 import json
 
@@ -88,20 +88,21 @@ async def get_multimodal_chat_response(
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.7,
-                max_output_tokens=800
+                max_output_tokens=800,
+                response_mime_type="application/json",
+                response_schema=AIResponse.model_json_schema(),
             )
         )
 
         try:
-            # The AI's response is now a JSON string, so we parse it.
-            ai_output = json.loads(response.text)
-            response_text = ai_output.get("response", response.text) # Fallback to raw text on error
-            follow_ups = ai_output.get("follow_up_questions", [])
-        except json.JSONDecodeError:
-            # If the AI fails to generate valid JSON, we gracefully fall back.
+            ai_output = AIResponse.model_validate_json(response.text)
+            response_text = ai_output.response
+            follow_ups = ai_output.follow_up_questions
+        except Exception: # Broad exception for safety
+             # If parsing fails for any reason, fall back gracefully
             response_text = response.text
             follow_ups = []
-
+            
         usage = response.usage_metadata
         return GeminiServiceResponse(
             response_text=response_text,

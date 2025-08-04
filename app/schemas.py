@@ -5,6 +5,10 @@ from typing import Optional, List
 
 # This represents a single message turn in the conversation history.
 # It now contains a list of file names (references) instead of image data.
+class AIResponse(BaseModel):
+    response: str
+    follow_up_questions: List[str]
+
 class FileReference(BaseModel):
     name: str
     mime_type: str
