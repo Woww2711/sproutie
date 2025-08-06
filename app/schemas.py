@@ -3,31 +3,28 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
-# No longer need FileReference, so it's removed.
-
-# HistoryMessage is now text-only.
+# --- PLACEHOLDER: This schema will be used later for history ---
+# For now, it defines the structure we will eventually expect.
 class HistoryMessage(BaseModel):
     role: str
     content: str
+# ----------------------------------------------------------------
 
-# GeminiServiceResponse is still the same, as it deals with the AI's response.
-class GeminiServiceResponse(BaseModel):
-    response_text: str
-    follow_ups: List[str] = []
-    input_tokens: int
-    output_tokens: int
-
-# ChatResponse is still the same, but its history will be text-only.
-class ChatResponse(BaseModel):
-    response_text: str
+# This defines the simple request body our gateway API will accept.
+class GatewayRequest(BaseModel):
+    message: str
+    sub_content: Optional[str] = None # Optional field for 'subContent'
+    # --- PLACEHOLDER: We include the field but won't use it yet ---
     history: List[HistoryMessage] = []
-    suggested_prompts: List[str] = []
-    
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
 
-# AIResponse schema for structured output remains the same.
-class AIResponse(BaseModel):
+# This is a helper schema to parse the JSON response from the external server.
+class ExternalAIResponse(BaseModel):
     response: str
     follow_up_questions: List[str]
+
+# This defines the final, user-friendly response our gateway API will return.
+class GatewayResponse(BaseModel):
+    response_text: str
+    suggested_prompts: List[str] = []
+    # --- PLACEHOLDER: We include the field but it will be empty for now ---
+    history: List[HistoryMessage] = []
