@@ -25,7 +25,7 @@ def hash_hmac_sha512(value_to_hash: int, secret_key: Optional[str] = None) -> st
     hmac_obj = hmac.new(secret_bytes, value_bytes, hashlib.sha512)
     return base64.b64encode(hmac_obj.digest()).decode('utf-8')
 
-EXTERNAL_API_URL = "http://192.168.31.5:3001/now/v1/ai/gemini" # e.g., "https://generativelanguage.googleapis.com/..."
+EXTERNAL_API_URL = "http://aichat.nowtechai.com/now/v1/ai/gemini" 
 
 def load_system_prompt():
     """Reads the system prompt content from the markdown file."""
@@ -47,11 +47,16 @@ async def call_external_api(
     """
     Constructs the request payload and calls the external AI server.
     """
-    # 1. Construct the 'content' string with the system prompt and user message.
-    # In the future, we will inject the 'history' into this string as well.
+    history_text = ""
+    if history:
+        # Format the history into a simple string
+        history_lines = [f"{msg.role}: {msg.content}" for msg in history]
+        history_text = "\n--- CONVERSATION HISTORY ---\n" + "\n".join(history_lines)
+
+    # Construct the 'content' string with system prompt, history, and new message.
     content_payload = (
-        f"--- SYSTEM PROMPT ---\n{SYSTEM_PROMPT}\n"
-        f"--- USER QUERY ---\n{message}"
+        f"--- SYSTEM PROMPT ---\n{SYSTEM_PROMPT}{history_text}\n"
+        f"--- CURRENT USER QUERY ---\n{message}"
     )
 
     # 2. Define the full JSON body for the external API.

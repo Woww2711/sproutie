@@ -79,3 +79,4 @@ secrets.toml
 local_data/
 test.py
 *.jpg
+conversation_history/
